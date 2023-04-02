@@ -39,18 +39,18 @@ lio_sam:
   imuRPYWeight: 0.01
 
   # Extrinsics: T_lb (lidar -> imu)
-  extrinsicTrans: [0.011, 0.02329, -0.04412]
-  extrinsicRot: [1, 0, 0,
-                  0, 1, 0,
-                  0, 0, 1]
-  extrinsicRPY: [1, 0, 0,
-                  0, 1, 0,
-                  0, 0, 1]
+  extrinsicTrans: [0.0, 0.0, -0.057396]
+  extrinsicRot: [ 0, 1, 0,
+                  1, 0,  0,
+                  0, 0,  -1]
+  extrinsicRPY: [ 0, 1, 0,
+                  1, 0, 0,
+                  0, 0, -1]
 
   # LOAM feature threshold
   edgeThreshold: 1.0
   surfThreshold: 0.1
-  edgeFeatureMinValidNum: 1
+  edgeFeatureMinValidNum: 5 #1
   surfFeatureMinValidNum: 50
 
   # voxel filter paprams

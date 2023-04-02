@@ -1,8 +1,10 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(lio_sam)
 
+option(BUILD_VGICP_CUDA "Build GPU-powered VGICP" OFF)
+
 set(CMAKE_BUILD_TYPE "Release")
-set(CMAKE_CXX_FLAGS "-std=c++11")
+set(CMAKE_CXX_FLAGS "-std=c++14")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -Wall -g -pthread")
 
 find_package(catkin REQUIRED COMPONENTS
@@ -19,6 +21,7 @@ find_package(catkin REQUIRED COMPONENTS
   nav_msgs
   message_generation
   visualization_msgs
+  fast_gicp
 )
 
 find_package(OpenMP REQUIRED)
@@ -59,6 +62,7 @@ catkin_package(
   message_runtime
   message_generation
   visualization_msgs
+  fast_gicp
 )
 
 # include directories
@@ -81,6 +85,10 @@ link_directories(
 ###########
 ## Build ##
 ###########
+
+if(BUILD_VGICP_CUDA)
+  add_compile_options(-D VGICP_CUDA_ENABLED)
+endif()
 
 # Range Image Projection
 add_executable(${PROJECT_NAME}_imageProjection src/imageProjection.cpp)

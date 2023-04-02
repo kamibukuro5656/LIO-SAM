@@ -12,6 +12,9 @@ lio_sam:
   odometryFrame: "odom"
   mapFrame: "map"
 
+  matchingMethod: "vgicp"
+  #matchingMethod: "feature"
+
   # GPS Settings
   useImuHeadingInitialization: false           # if using GPS data, set to "true"
   useGpsElevation: false                      # if GPS elevation is bad, set to "false"
@@ -27,7 +30,7 @@ lio_sam:
   N_SCAN: 4                                  # number of lidar channel (i.e., Velodyne/Ouster: 16, 32, 64, 128, Livox Horizon: 6)
   Horizon_SCAN: 5000                          # lidar horizontal resolution (Velodyne:1800, Ouster:512,1024,2048, Livox Horizon: 4000)
   downsampleRate: 1                           # default: 1. Downsample your data if too many points. i.e., 16 = 64 / 4, 16 = 16 / 1
-  lidarMinRange: 0.1                          # default: 1.0, minimum lidar range to be used
+  lidarMinRange: 0.3                          # default: 1.0, minimum lidar range to be used
   lidarMaxRange: 1000.0                       # default: 1000.0, maximum lidar range to be used
 
   # IMU Settings
@@ -36,16 +39,16 @@ lio_sam:
   imuAccBiasN: 1.3428719445794230e-03
   imuGyrBiasN: 2.9854991086690593e-05
   imuGravity: 9.80511
-  imuRPYWeight: 0.01
+  imuRPYWeight: 0.0
 
   # Extrinsics: T_lb (lidar -> imu)
-  extrinsicTrans: [0.011, 0.02329, -0.04412]
-  extrinsicRot: [1, 0, 0,
-                  0, 1, 0,
-                  0, 0, 1]
-  extrinsicRPY: [1, 0, 0,
-                  0, 1, 0,
-                  0, 0, 1]
+  extrinsicTrans: [0.0, 0.0, -0.057396]
+  extrinsicRot: [ 0, 1, 0,
+                  1, 0,  0,
+                  0, 0,  -1]
+  extrinsicRPY: [ 0, 1, 0,
+                  1, 0, 0,
+                  0, 0, -1]
 
   # LOAM feature threshold
   edgeThreshold: 1.0
@@ -54,9 +57,9 @@ lio_sam:
   surfFeatureMinValidNum: 50
 
   # voxel filter paprams
-  odometrySurfLeafSize: 0.2                     # default: 0.4 - outdoor, 0.2 - indoor
-  mappingCornerLeafSize: 0.1                    # default: 0.2 - outdoor, 0.1 - indoor
-  mappingSurfLeafSize: 0.2                      # default: 0.4 - outdoor, 0.2 - indoor
+  odometrySurfLeafSize: 0.4                     # default: 0.4 - outdoor, 0.2 - indoor
+  mappingCornerLeafSize: 0.25                    # default: 0.2 - outdoor, 0.1 - indoor
+  mappingSurfLeafSize: 0.25                      # default: 0.4 - outdoor, 0.2 - indoor
 
   # robot motion constraint (in case you are using a 2D robot)
   z_tollerance: 1000                            # meters
@@ -68,18 +71,18 @@ lio_sam:
 
   # Surrounding map
   surroundingkeyframeAddingDistThreshold: 1.0   # meters, regulate keyframe adding threshold
-  surroundingkeyframeAddingAngleThreshold: 0.2  # radians, regulate keyframe adding threshold
+  surroundingkeyframeAddingAngleThreshold: 0.1  # radians, regulate keyframe adding threshold
   surroundingKeyframeDensity: 2.0               # meters, downsample surrounding keyframe poses   
-  surroundingKeyframeSearchRadius: 50.0         # meters, within n meters scan-to-map optimization (when loop closure disabled)
+  surroundingKeyframeSearchRadius: 25.0 #50.0         # meters, within n meters scan-to-map optimization (when loop closure disabled)
 
   # Loop closure
   loopClosureEnableFlag: true
   loopClosureFrequency: 1.0                     # Hz, regulate loop closure constraint add frequency
   surroundingKeyframeSize: 50                   # submap size (when loop closure enabled)
-  historyKeyframeSearchRadius: 15.0             # meters, key frame that is within n meters from current pose will be considerd for loop closure
+  historyKeyframeSearchRadius: 50.0             # meters, key frame that is within n meters from current pose will be considerd for loop closure
   historyKeyframeSearchTimeDiff: 30.0           # seconds, key frame that is n seconds older will be considered for loop closure
   historyKeyframeSearchNum: 25                  # number of hostory key frames will be fused into a submap for loop closure
-  historyKeyframeFitnessScore: 0.3              # icp threshold, the smaller the better alignment
+  historyKeyframeFitnessScore: 0.2              # icp threshold, the smaller the better alignment
 
   # Visualization
   globalMapVisualizationSearchRadius: 1000.0    # meters, global map visualization radius

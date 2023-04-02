@@ -14,8 +14,20 @@
 #include <gtsam/nonlinear/Marginals.h>
 #include <gtsam/nonlinear/Values.h>
 #include <gtsam/inference/Symbol.h>
-
 #include <gtsam/nonlinear/ISAM2.h>
+
+#include <fast_gicp/gicp/fast_gicp.hpp>
+#include <fast_gicp/gicp/fast_vgicp.hpp>
+#include <fast_gicp/gicp/lsq_registration.hpp>
+
+#ifdef VGICP_CUDA_ENABLED
+  #include <fast_gicp/gicp/fast_vgicp_cuda.hpp>
+  #include <fast_gicp/ndt/ndt_cuda.hpp>
+#endif
+
+#include <pcl/io/pcd_io.h>
+
+#include <chrono>
 
 using namespace gtsam;
 
@@ -153,6 +165,7 @@ public:
     Eigen::Affine3f incrementalOdometryAffineFront;
     Eigen::Affine3f incrementalOdometryAffineBack;
 
+    fast_gicp::LsqRegistration<PointType, PointType> *scanMatcher;
 
     mapOptimization()
     {
@@ -188,7 +201,84 @@ public:
         downSizeFilterICP.setLeafSize(mappingSurfLeafSize, mappingSurfLeafSize, mappingSurfLeafSize);
         downSizeFilterSurroundingKeyPoses.setLeafSize(surroundingKeyframeDensity, surroundingKeyframeDensity, surroundingKeyframeDensity); // for surrounding key poses of scan-to-map optimization
 
+        switch(matchingMethod){
+            case MatchingMethod::GICP :
+                {
+                    auto matcher = new fast_gicp::FastGICP<PointType, PointType>;
+                    //matcher->setRegularizationMethod(fast_gicp::RegularizationMethod::FROBENIUS);
+                    matcher->setRegularizationMethod(fast_gicp::RegularizationMethod::PLANE);
+                    matcher->setMaximumIterations(60);
+                    matcher->setMaxCorrespondenceDistance(1.0);
+                    matcher->setCorrespondenceRandomness(10);
+                    matcher->setTransformationEpsilon(0.0001);
+                    matcher->setEuclideanFitnessEpsilon(0.0001);
+                    matcher->setRotationEpsilon(0.0001);
+                    scanMatcher = matcher;
+                }
+                break;
+            case MatchingMethod::VGICP :
+                {
+                    auto matcher = new fast_gicp::FastVGICP<PointType, PointType>;
+                    //matcher->setRegularizationMethod(fast_gicp::RegularizationMethod::FROBENIUS);
+                    matcher->setRegularizationMethod(fast_gicp::RegularizationMethod::PLANE);
+                    matcher->setMaximumIterations(60);
+                    matcher->setResolution(0.5);
+                    matcher->setMaxCorrespondenceDistance(1.0);
+                    matcher->setCorrespondenceRandomness(10);
+                    matcher->setTransformationEpsilon(0.0001);
+                    matcher->setEuclideanFitnessEpsilon(0.0001);
+                    matcher->setRotationEpsilon(0.0001);
+                    scanMatcher = matcher;
+                }
+                break;
+            case MatchingMethod::VGICP_CUDA :
+                {
+                  #ifdef VGICP_CUDA_ENABLED
+                    auto matcher = new fast_gicp::FastVGICPCuda<PointType, PointType>;
+                    //matcher->setRegularizationMethod(fast_gicp::RegularizationMethod::FROBENIUS);
+                    matcher->setRegularizationMethod(fast_gicp::RegularizationMethod::PLANE);
+                    matcher->setMaximumIterations(60);
+                    matcher->setResolution(0.5);
+                    matcher->setMaxCorrespondenceDistance(1.0);
+                    matcher->setCorrespondenceRandomness(10);
+                    matcher->setTransformationEpsilon(0.0001);
+                    matcher->setEuclideanFitnessEpsilon(0.0001);
+                    matcher->setRotationEpsilon(0.0001);
+                    scanMatcher = matcher;
+                  #else
+                    scanMatcher = NULL;
+                  #endif
+                }
+                break;
+            case MatchingMethod::NDT_CUDA :
+                {
+                  #ifdef VGICP_CUDA_ENABLED
+                    auto matcher = new fast_gicp::NDTCuda<PointType, PointType>;
+                    matcher->setMaximumIterations(60);
+                    matcher->setResolution(1.0);
+                    matcher->setMaxCorrespondenceDistance(1.0);
+                    matcher->setTransformationEpsilon(0.0001);
+                    matcher->setEuclideanFitnessEpsilon(0.0001);
+                    matcher->setRotationEpsilon(0.0001);
+                    scanMatcher = matcher;
+                  #else
+                    scanMatcher = NULL;
+                  #endif
+                }
+                break;
+            default :
+                scanMatcher = NULL;
+                break;
+        }
+
         allocateMemory();
+    }
+    
+    ~mapOptimization()
+    {
+        delete isam;
+        if(scanMatcher != NULL)
+            delete scanMatcher;
     }
 
     void allocateMemory()
@@ -242,8 +332,14 @@ public:
 
         // extract info and feature cloud
         cloudInfo = *msgIn;
-        pcl::fromROSMsg(msgIn->cloud_corner,  *laserCloudCornerLast);
-        pcl::fromROSMsg(msgIn->cloud_surface, *laserCloudSurfLast);
+
+        if(matchingMethod == MatchingMethod::FEATURE){
+            pcl::fromROSMsg(msgIn->cloud_corner,  *laserCloudCornerLast);
+            pcl::fromROSMsg(msgIn->cloud_surface, *laserCloudSurfLast);
+        }
+        else{
+            pcl::fromROSMsg(msgIn->cloud_deskewed,  *laserCloudCornerLast);
+        }
 
         std::lock_guard<std::mutex> lock(mtx);
 
@@ -338,20 +434,6 @@ public:
         return thisPose6D;
     }
 
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
     bool saveMapService(lio_sam::save_mapRequest& req, lio_sam::save_mapResponse& res)
     {
       string saveMapDirectory;
@@ -387,19 +469,23 @@ public:
         downSizeFilterCorner.setInputCloud(globalCornerCloud);
         downSizeFilterCorner.setLeafSize(req.resolution, req.resolution, req.resolution);
         downSizeFilterCorner.filter(*globalCornerCloudDS);
-        pcl::io::savePCDFileBinary(saveMapDirectory + "/CornerMap.pcd", *globalCornerCloudDS);
+        if(!globalCornerCloudDS->empty())
+            pcl::io::savePCDFileBinary(saveMapDirectory + "/CornerMap.pcd", *globalCornerCloudDS);
         // down-sample and save surf cloud
         downSizeFilterSurf.setInputCloud(globalSurfCloud);
         downSizeFilterSurf.setLeafSize(req.resolution, req.resolution, req.resolution);
         downSizeFilterSurf.filter(*globalSurfCloudDS);
-        pcl::io::savePCDFileBinary(saveMapDirectory + "/SurfMap.pcd", *globalSurfCloudDS);
+        if(!globalSurfCloudDS->empty())
+            pcl::io::savePCDFileBinary(saveMapDirectory + "/SurfMap.pcd", *globalSurfCloudDS);
       }
       else
       {
         // save corner cloud
-        pcl::io::savePCDFileBinary(saveMapDirectory + "/CornerMap.pcd", *globalCornerCloud);
+        if(!globalCornerCloud->empty())
+            pcl::io::savePCDFileBinary(saveMapDirectory + "/CornerMap.pcd", *globalCornerCloud);
         // save surf cloud
-        pcl::io::savePCDFileBinary(saveMapDirectory + "/SurfMap.pcd", *globalSurfCloud);
+        if(!globalSurfCloud->empty())
+            pcl::io::savePCDFileBinary(saveMapDirectory + "/SurfMap.pcd", *globalSurfCloud);
       }
 
       // save global point cloud map
@@ -488,17 +574,6 @@ public:
         downSizeFilterGlobalMapKeyFrames.filter(*globalMapKeyFramesDS);
         publishCloud(pubLaserCloudSurround, globalMapKeyFramesDS, timeLaserInfoStamp, odometryFrame);
     }
-
-
-
-
-
-
-
-
-
-
-
 
     void loopClosureThread()
     {
@@ -773,16 +848,6 @@ public:
         pubLoopConstraintEdge.publish(markerArray);
     }
 
-
-
-
-
-
-
-    
-
-
-
     void updateInitialGuess()
     {
         // save current transformation before any processing
@@ -922,15 +987,22 @@ public:
             }
             
         }
-
-        // Downsample the surrounding corner key frames (or map)
-        downSizeFilterCorner.setInputCloud(laserCloudCornerFromMap);
-        downSizeFilterCorner.filter(*laserCloudCornerFromMapDS);
-        laserCloudCornerFromMapDSNum = laserCloudCornerFromMapDS->size();
-        // Downsample the surrounding surf key frames (or map)
-        downSizeFilterSurf.setInputCloud(laserCloudSurfFromMap);
-        downSizeFilterSurf.filter(*laserCloudSurfFromMapDS);
-        laserCloudSurfFromMapDSNum = laserCloudSurfFromMapDS->size();
+        
+        if(matchingMethod == MatchingMethod::FEATURE){
+            // Downsample the surrounding corner key frames (or map)
+            downSizeFilterCorner.setInputCloud(laserCloudCornerFromMap);
+            downSizeFilterCorner.filter(*laserCloudCornerFromMapDS);
+            laserCloudCornerFromMapDSNum = laserCloudCornerFromMapDS->size();
+            // Downsample the surrounding surf key frames (or map)
+            downSizeFilterSurf.setInputCloud(laserCloudSurfFromMap);
+            downSizeFilterSurf.filter(*laserCloudSurfFromMapDS);
+            laserCloudSurfFromMapDSNum = laserCloudSurfFromMapDS->size();
+        }
+        else{
+            downSizeFilterSurf.setInputCloud(laserCloudCornerFromMap);
+            downSizeFilterSurf.filter(*laserCloudCornerFromMapDS);
+            laserCloudCornerFromMapDSNum = laserCloudCornerFromMapDS->size();
+        }
 
         // clear map cache if too large
         if (laserCloudMapContainer.size() > 1000)
@@ -955,15 +1027,24 @@ public:
     void downsampleCurrentScan()
     {
         // Downsample cloud from current scan
-        laserCloudCornerLastDS->clear();
-        downSizeFilterCorner.setInputCloud(laserCloudCornerLast);
-        downSizeFilterCorner.filter(*laserCloudCornerLastDS);
-        laserCloudCornerLastDSNum = laserCloudCornerLastDS->size();
+        if(matchingMethod == MatchingMethod::FEATURE){
+            laserCloudCornerLastDS->clear();
+            downSizeFilterCorner.setInputCloud(laserCloudCornerLast);
+            downSizeFilterCorner.filter(*laserCloudCornerLastDS);
+            laserCloudCornerLastDSNum = laserCloudCornerLastDS->size();
 
-        laserCloudSurfLastDS->clear();
-        downSizeFilterSurf.setInputCloud(laserCloudSurfLast);
-        downSizeFilterSurf.filter(*laserCloudSurfLastDS);
-        laserCloudSurfLastDSNum = laserCloudSurfLastDS->size();
+            laserCloudSurfLastDS->clear();
+            downSizeFilterSurf.setInputCloud(laserCloudSurfLast);
+            downSizeFilterSurf.filter(*laserCloudSurfLastDS);
+            laserCloudSurfLastDSNum = laserCloudSurfLastDS->size();
+        }
+        else{
+            laserCloudCornerLastDS->clear();
+            downSizeFilterCorner.setInputCloud(laserCloudCornerLast);
+            downSizeFilterCorner.filter(*laserCloudCornerLastDS);
+            laserCloudCornerLastDSNum = laserCloudCornerLastDS->size();
+        }
+
     }
 
     void updatePointAssociateToMap()
@@ -1255,6 +1336,7 @@ public:
             cv::Mat matX2(6, 1, CV_32F, cv::Scalar::all(0));
             matX.copyTo(matX2);
             matX = matP * matX2;
+            std::cout << "degenerated" << std::endl;
         }
 
         transformTobeMapped[0] += matX.at<float>(0, 0);
@@ -1281,32 +1363,89 @@ public:
 
     void scan2MapOptimization()
     {
-        if (cloudKeyPoses3D->points.empty())
+        if (cloudKeyPoses3D->points.empty()){
             return;
-
-        if (laserCloudCornerLastDSNum > edgeFeatureMinValidNum && laserCloudSurfLastDSNum > surfFeatureMinValidNum)
-        {
-            kdtreeCornerFromMap->setInputCloud(laserCloudCornerFromMapDS);
-            kdtreeSurfFromMap->setInputCloud(laserCloudSurfFromMapDS);
-
-            for (int iterCount = 0; iterCount < 30; iterCount++)
-            {
-                laserCloudOri->clear();
-                coeffSel->clear();
-
-                cornerOptimization();
-                surfOptimization();
-
-                combineOptimizationCoeffs();
-
-                if (LMOptimization(iterCount) == true)
-                    break;              
-            }
-
-            transformUpdate();
-        } else {
-            ROS_WARN("Not enough features! Only %d edge and %d planar features available.", laserCloudCornerLastDSNum, laserCloudSurfLastDSNum);
         }
+
+        std::chrono::system_clock::time_point  start, end; // 型は auto で可
+        start = std::chrono::system_clock::now(); // 計測開始時間
+        if(matchingMethod == MatchingMethod::FEATURE){
+            if (laserCloudCornerLastDSNum > edgeFeatureMinValidNum && laserCloudSurfLastDSNum > surfFeatureMinValidNum)
+            {
+                kdtreeCornerFromMap->setInputCloud(laserCloudCornerFromMapDS);
+                kdtreeSurfFromMap->setInputCloud(laserCloudSurfFromMapDS);
+
+                for (int iterCount = 0; iterCount < 30; iterCount++)
+                {
+                    laserCloudOri->clear();
+                    coeffSel->clear();
+
+                    cornerOptimization();
+                    surfOptimization();
+
+                    combineOptimizationCoeffs();
+
+                    if (LMOptimization(iterCount) == true)
+                        break;
+                }
+
+                transformUpdate();
+            } else {
+                ROS_WARN("Not enough features! Only %d edge and %d planar features available.", laserCloudCornerLastDSNum, laserCloudSurfLastDSNum);
+            }
+        }
+        else{
+            if (laserCloudCornerLastDSNum > edgeFeatureMinValidNum && scanMatcher != NULL)
+            {
+                updatePointAssociateToMap();
+
+                pcl::PointCloud<PointType>::Ptr unusedCloud(new pcl::PointCloud<PointType>);
+
+                scanMatcher->clearSource();
+                scanMatcher->clearTarget();
+                scanMatcher->setInputSource(laserCloudCornerLastDS);
+                scanMatcher->setInputTarget(laserCloudCornerFromMapDS);
+                
+                Eigen::Matrix4f initial_guess = transPointAssociateToMap.matrix();
+                initial_guess.block<3, 3>(0, 0) = Eigen::Quaternionf(initial_guess.block<3, 3>(0, 0)).normalized().toRotationMatrix();
+                scanMatcher->align(*unusedCloud, initial_guess);
+
+                // static unsigned int counter = 0;
+                // if(counter % 10 == 0){
+                //     pcl::io::savePCDFileBinary("/tmp/scan.pcd", *transformedCloud);
+                //     pcl::io::savePCDFileBinary("/tmp/map.pcd", *laserCloudCornerFromMapDS);
+                //     pcl::io::savePCDFileBinary("/tmp/aligned.pcd", *unusedCloud);
+                //     std::cout << "saved" << std::endl;
+                // }
+                // counter++;
+
+                Eigen::Affine3f result = (Eigen::Affine3f)scanMatcher->getFinalTransformation();
+                float x, y, z, roll, pitch ,yaw;
+                pcl::getTranslationAndEulerAngles(result, x, y, z, roll, pitch, yaw);
+                transformTobeMapped[3] = x;
+                transformTobeMapped[4] = y;
+                transformTobeMapped[5] = z;
+                transformTobeMapped[0] = roll;
+                transformTobeMapped[1] = pitch;
+                transformTobeMapped[2] = yaw;
+                isDegenerate = !scanMatcher->hasConverged();
+                 
+                transformUpdate();
+                std::cout << "----------------------" << std::endl;
+                std::cout << laserCloudCornerLastDS->size() << " " << laserCloudCornerFromMapDS->size() << std::endl;
+                std::cout << scanMatcher->hasConverged() << " " << scanMatcher->getFitnessScore() << std::endl;
+                std::cout << result.translation() << "\n" <<  result.rotation().eulerAngles(0, 1, 2) << "\n" << std::endl;
+                std::cout << transPointAssociateToMap.translation() << "\n" <<  transPointAssociateToMap.rotation().eulerAngles(0, 1, 2) << "\n" << std::endl;
+                std::cout << incrementalOdometryAffineBack.translation() << "\n" << incrementalOdometryAffineBack.rotation().eulerAngles(0, 1, 2) << "\n" << std::endl;
+                std::cout << "----------------------" << std::endl;
+            
+            } else {
+                ROS_WARN("Not enough features! Only %d edge and %d planar features available.", laserCloudCornerLastDSNum, laserCloudSurfLastDSNum);
+            }
+        }
+        end = std::chrono::system_clock::now();  // 計測終了時間
+        double elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end-start).count(); //処理に要した時間をミリ秒に変換
+        std::cout << "duration = " << elapsed << "ms\n";
     }
 
     void transformUpdate()

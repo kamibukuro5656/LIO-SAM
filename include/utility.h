@@ -15,7 +15,7 @@
 #include <visualization_msgs/Marker.h>
 #include <visualization_msgs/MarkerArray.h>
 
-#include <opencv/cv.h>
+//#include <opencv/cv.h>
 
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
@@ -36,6 +36,8 @@
 #include <tf/transform_datatypes.h>
 #include <tf/transform_broadcaster.h>
  
+#include <opencv2/opencv.hpp>
+
 #include <vector>
 #include <cmath>
 #include <algorithm>
@@ -151,6 +153,9 @@ public:
     float globalMapVisualizationPoseDensity;
     float globalMapVisualizationLeafSize;
 
+    enum class MatchingMethod {FEATURE, GICP, VGICP, VGICP_CUDA, NDT_CUDA};
+    MatchingMethod matchingMethod;
+
     ParamServer()
     {
         nh.param<std::string>("/robot_id", robot_id, "roboat");
@@ -245,6 +250,47 @@ public:
         nh.param<float>("lio_sam/globalMapVisualizationSearchRadius", globalMapVisualizationSearchRadius, 1e3);
         nh.param<float>("lio_sam/globalMapVisualizationPoseDensity", globalMapVisualizationPoseDensity, 10.0);
         nh.param<float>("lio_sam/globalMapVisualizationLeafSize", globalMapVisualizationLeafSize, 1.0);
+
+        std::string matchingMethodStr;
+        nh.param<std::string>("lio_sam/matchingMethod", matchingMethodStr, "feature");
+        if (matchingMethodStr == "gicp")
+        {
+            matchingMethod = MatchingMethod::GICP;
+        }
+        else if (matchingMethodStr == "vgicp")
+        {
+            matchingMethod = MatchingMethod::VGICP;
+        }
+        else if (matchingMethodStr == "vgicp_cuda")
+        {
+          #ifdef VGCIP_CUDA_ENABLED
+            matchingMethod = MatchingMethod::VGICP_CUDA;
+          #else
+            ROS_ERROR_STREAM(
+                "You must build with cuda enabled to select this matching method: " << matchingMethodStr);
+            ros::shutdown();
+          #endif
+        }
+        else if (matchingMethodStr == "ndt_cuda")
+        {
+          #ifdef VGCIP_CUDA_ENABLED
+            matchingMethod = MatchingMethod::NDT_CUDA;
+          #else
+            ROS_ERROR_STREAM(
+                "You must build with cuda enabled to select this matching method: " << matchingMethodStr);
+            ros::shutdown();
+          #endif
+        }
+        else if (matchingMethodStr == "feature")
+        {
+            matchingMethod = MatchingMethod::FEATURE;
+        }
+        else
+        {
+            ROS_ERROR_STREAM(
+                "Invalid matching method (must be either 'gicp' or 'vgicp' or 'vgicp_cuda' or 'feature'): " << matchingMethodStr);
+            ros::shutdown();
+        }
 
         usleep(100);
     }
