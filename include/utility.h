@@ -156,6 +156,9 @@ public:
     enum class MatchingMethod {FEATURE, GICP, VGICP, VGICP_CUDA, NDT_CUDA};
     MatchingMethod matchingMethod;
 
+    bool useKeyFramesConvexSubMapping;
+    bool useScanConvexSubMapping;
+
     ParamServer()
     {
         nh.param<std::string>("/robot_id", robot_id, "roboat");
@@ -267,7 +270,7 @@ public:
             matchingMethod = MatchingMethod::VGICP_CUDA;
           #else
             ROS_ERROR_STREAM(
-                "You must build with cuda enabled to select this matching method: " << matchingMethodStr);
+                "Must build with cuda to select this matching method: " << matchingMethodStr);
             ros::shutdown();
           #endif
         }
@@ -277,7 +280,7 @@ public:
             matchingMethod = MatchingMethod::NDT_CUDA;
           #else
             ROS_ERROR_STREAM(
-                "You must build with cuda enabled to select this matching method: " << matchingMethodStr);
+                "Must build with cuda to select this matching method: " << matchingMethodStr);
             ros::shutdown();
           #endif
         }
@@ -291,6 +294,8 @@ public:
                 "Invalid matching method (must be either 'gicp' or 'vgicp' or 'vgicp_cuda' or 'feature'): " << matchingMethodStr);
             ros::shutdown();
         }
+        nh.param<bool>("lio_sam/useKeyFramesConvexSubMapping", useKeyFramesConvexSubMapping, true);
+        nh.param<bool>("lio_sam/useScanConvexSubMapping", useScanConvexSubMapping, true);
 
         usleep(100);
     }

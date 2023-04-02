@@ -26,6 +26,12 @@
 #endif
 
 #include <pcl/io/pcd_io.h>
+#include <pcl/surface/concave_hull.h>
+#include <pcl/surface/convex_hull.h>
+
+#ifdef __GNUC__
+#pragma GCC diagnostic ignored "-Wold-style-cast"
+#endif
 
 #include <chrono>
 
@@ -166,6 +172,8 @@ public:
     Eigen::Affine3f incrementalOdometryAffineBack;
 
     fast_gicp::LsqRegistration<PointType, PointType> *scanMatcher;
+    pcl::ConvexHull<PointType> convexHull;
+    pcl::ConcaveHull<PointType> concaveHull;
 
     mapOptimization()
     {
@@ -271,6 +279,10 @@ public:
                 break;
         }
 
+        this->convexHull.setDimension(3);
+        this->concaveHull.setDimension(3);
+        this->concaveHull.setAlpha(surroundingkeyframeAddingDistThreshold);
+
         allocateMemory();
     }
     
@@ -350,9 +362,9 @@ public:
 
             updateInitialGuess();
 
-            extractSurroundingKeyFrames();
-
             downsampleCurrentScan();
+            
+            extractSurroundingKeyFrames();
 
             scan2MapOptimization();
 
@@ -938,6 +950,53 @@ public:
         {
             int id = pointSearchInd[i];
             surroundingKeyPoses->push_back(cloudKeyPoses3D->points[id]);
+        }
+
+        if(useKeyFramesConvexSubMapping)
+        {
+            if(cloudKeyPoses3D->size() >= 4){
+                this->convexHull.setInputCloud(cloudKeyPoses3D);
+
+                pcl::PointCloud<PointType>::Ptr convexPoints = pcl::PointCloud<PointType>::Ptr (new pcl::PointCloud<PointType>);
+                this->convexHull.reconstruct(*convexPoints);
+
+                *surroundingKeyPoses += *convexPoints;
+            }
+            if(cloudKeyPoses3D->size() >= 5){
+                this->concaveHull.setInputCloud(cloudKeyPoses3D);
+
+                pcl::PointCloud<PointType>::Ptr concavePoints = pcl::PointCloud<PointType>::Ptr (new pcl::PointCloud<PointType>);
+                this->concaveHull.reconstruct(*concavePoints);
+
+                *surroundingKeyPoses += *concavePoints;
+            }
+        }
+
+        if(useScanConvexSubMapping)
+        {
+            updatePointAssociateToMap();
+            pcl::PointCloud<PointType>::Ptr scanDS = pcl::PointCloud<PointType>::Ptr (new pcl::PointCloud<PointType>);
+            pcl::PointCloud<PointType>::Ptr scanTransformedDS = pcl::PointCloud<PointType>::Ptr (new pcl::PointCloud<PointType>);
+            *scanDS = *laserCloudCornerLastDS + *laserCloudSurfLastDS;
+            PointTypePose pose = {transformTobeMapped[3], transformTobeMapped[4], transformTobeMapped[5], transformTobeMapped[0], transformTobeMapped[1], transformTobeMapped[2]};
+            scanTransformedDS = transformPointCloud(scanDS, &pose);
+
+            if(scanTransformedDS->size() >= 4){
+                this->convexHull.setInputCloud(scanTransformedDS);
+
+                pcl::PointCloud<PointType>::Ptr convexPoints = pcl::PointCloud<PointType>::Ptr (new pcl::PointCloud<PointType>);
+                this->convexHull.reconstruct(*convexPoints);
+
+                *surroundingKeyPoses += *convexPoints;
+            }
+            if(scanTransformedDS->size() >= 5){
+                this->concaveHull.setInputCloud(scanTransformedDS);
+
+                pcl::PointCloud<PointType>::Ptr concavePoints = pcl::PointCloud<PointType>::Ptr (new pcl::PointCloud<PointType>);
+                this->concaveHull.reconstruct(*concavePoints);
+
+                *surroundingKeyPoses += *concavePoints;
+            }
         }
 
         downSizeFilterSurroundingKeyPoses.setInputCloud(surroundingKeyPoses);
