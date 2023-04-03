@@ -266,23 +266,23 @@ public:
         }
         else if (matchingMethodStr == "vgicp_cuda")
         {
-          #ifdef VGCIP_CUDA_ENABLED
+        //   #ifdef VGCIP_CUDA_ENABLED
             matchingMethod = MatchingMethod::VGICP_CUDA;
-          #else
-            ROS_ERROR_STREAM(
-                "Must build with cuda to select this matching method: " << matchingMethodStr);
-            ros::shutdown();
-          #endif
+        //   #else
+        //     ROS_ERROR_STREAM(
+        //         "Must build with cuda to select this matching method: " << matchingMethodStr);
+        //     ros::shutdown();
+        //   #endif
         }
         else if (matchingMethodStr == "ndt_cuda")
         {
-          #ifdef VGCIP_CUDA_ENABLED
+        //   #ifdef VGCIP_CUDA_ENABLED
             matchingMethod = MatchingMethod::NDT_CUDA;
-          #else
-            ROS_ERROR_STREAM(
-                "Must build with cuda to select this matching method: " << matchingMethodStr);
-            ros::shutdown();
-          #endif
+        //   #else
+        //     ROS_ERROR_STREAM(
+        //         "Must build with cuda to select this matching method: " << matchingMethodStr);
+        //     ros::shutdown();
+        //   #endif
         }
         else if (matchingMethodStr == "feature")
         {
@@ -294,8 +294,6 @@ public:
                 "Invalid matching method (must be either 'gicp' or 'vgicp' or 'vgicp_cuda' or 'feature'): " << matchingMethodStr);
             ros::shutdown();
         }
-        nh.param<bool>("lio_sam/useKeyFramesConvexSubMapping", useKeyFramesConvexSubMapping, true);
-        nh.param<bool>("lio_sam/useScanConvexSubMapping", useScanConvexSubMapping, true);
 
         usleep(100);
     }

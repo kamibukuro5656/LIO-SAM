@@ -201,6 +201,7 @@ public:
         pubRecentKeyFrames    = nh.advertise<sensor_msgs::PointCloud2>("lio_sam/mapping/map_local", 1);
         pubRecentKeyFrame     = nh.advertise<sensor_msgs::PointCloud2>("lio_sam/mapping/cloud_registered", 1);
         pubCloudRegisteredRaw = nh.advertise<sensor_msgs::PointCloud2>("lio_sam/mapping/cloud_registered_raw", 1);
+        pubCloudRegisteredRaw = nh.advertise<sensor_msgs::PointCloud2>("lio_sam/mapping/cloud_registered_raw", 1);
 
         pubSLAMInfo           = nh.advertise<lio_sam::cloud_info>("lio_sam/mapping/slam_info", 1);
 
@@ -255,6 +256,9 @@ public:
                     scanMatcher = matcher;
                   #else
                     scanMatcher = NULL;
+                    ROS_ERROR_STREAM(
+                        "Must build with cuda to select this matching method: " << matchingMethodStr);
+                    ros::shutdown();
                   #endif
                 }
                 break;
@@ -271,6 +275,9 @@ public:
                     scanMatcher = matcher;
                   #else
                     scanMatcher = NULL;
+                    ROS_ERROR_STREAM(
+                        "Must build with cuda to select this matching method: " << matchingMethodStr);
+                    ros::shutdown();
                   #endif
                 }
                 break;
@@ -952,53 +959,6 @@ public:
             surroundingKeyPoses->push_back(cloudKeyPoses3D->points[id]);
         }
 
-        if(useKeyFramesConvexSubMapping)
-        {
-            if(cloudKeyPoses3D->size() >= 4){
-                this->convexHull.setInputCloud(cloudKeyPoses3D);
-
-                pcl::PointCloud<PointType>::Ptr convexPoints = pcl::PointCloud<PointType>::Ptr (new pcl::PointCloud<PointType>);
-                this->convexHull.reconstruct(*convexPoints);
-
-                *surroundingKeyPoses += *convexPoints;
-            }
-            if(cloudKeyPoses3D->size() >= 5){
-                this->concaveHull.setInputCloud(cloudKeyPoses3D);
-
-                pcl::PointCloud<PointType>::Ptr concavePoints = pcl::PointCloud<PointType>::Ptr (new pcl::PointCloud<PointType>);
-                this->concaveHull.reconstruct(*concavePoints);
-
-                *surroundingKeyPoses += *concavePoints;
-            }
-        }
-
-        if(useScanConvexSubMapping)
-        {
-            updatePointAssociateToMap();
-            pcl::PointCloud<PointType>::Ptr scanDS = pcl::PointCloud<PointType>::Ptr (new pcl::PointCloud<PointType>);
-            pcl::PointCloud<PointType>::Ptr scanTransformedDS = pcl::PointCloud<PointType>::Ptr (new pcl::PointCloud<PointType>);
-            *scanDS = *laserCloudCornerLastDS + *laserCloudSurfLastDS;
-            PointTypePose pose = {transformTobeMapped[3], transformTobeMapped[4], transformTobeMapped[5], transformTobeMapped[0], transformTobeMapped[1], transformTobeMapped[2]};
-            scanTransformedDS = transformPointCloud(scanDS, &pose);
-
-            if(scanTransformedDS->size() >= 4){
-                this->convexHull.setInputCloud(scanTransformedDS);
-
-                pcl::PointCloud<PointType>::Ptr convexPoints = pcl::PointCloud<PointType>::Ptr (new pcl::PointCloud<PointType>);
-                this->convexHull.reconstruct(*convexPoints);
-
-                *surroundingKeyPoses += *convexPoints;
-            }
-            if(scanTransformedDS->size() >= 5){
-                this->concaveHull.setInputCloud(scanTransformedDS);
-
-                pcl::PointCloud<PointType>::Ptr concavePoints = pcl::PointCloud<PointType>::Ptr (new pcl::PointCloud<PointType>);
-                this->concaveHull.reconstruct(*concavePoints);
-
-                *surroundingKeyPoses += *concavePoints;
-            }
-        }
-
         downSizeFilterSurroundingKeyPoses.setInputCloud(surroundingKeyPoses);
         downSizeFilterSurroundingKeyPoses.filter(*surroundingKeyPosesDS);
         for(auto& pt : surroundingKeyPosesDS->points)
@@ -1080,7 +1040,13 @@ public:
         //     extractNearby();
         // }
 
+        auto start = std::chrono::system_clock::now();  // 計測終了時間
+        
         extractNearby();
+
+        auto end = std::chrono::system_clock::now();  // 計測終了時間
+        double elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(end-start).count(); //処理に要した時間をミリ秒に変換
+        std::cout << "submapping duration = " << elapsed << "ms\n";
     }
 
     void downsampleCurrentScan()
@@ -1906,7 +1872,10 @@ public:
         // publish key poses
         publishCloud(pubKeyPoses, cloudKeyPoses3D, timeLaserInfoStamp, odometryFrame);
         // Publish surrounding key frames
-        publishCloud(pubRecentKeyFrames, laserCloudSurfFromMapDS, timeLaserInfoStamp, odometryFrame);
+        if(matchingMethod == MatchingMethod::FEATURE)
+            publishCloud(pubRecentKeyFrames, laserCloudSurfFromMapDS, timeLaserInfoStamp, odometryFrame);
+        else
+            publishCloud(pubRecentKeyFrames, laserCloudCornerFromMapDS, timeLaserInfoStamp, odometryFrame);
         // publish registered key frame
         if (pubRecentKeyFrame.getNumSubscribers() != 0)
         {

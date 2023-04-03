@@ -9,6 +9,7 @@ Panels:
         - /Point Cloud1
         - /Feature Cloud1
         - /Mapping1
+        - /Mapping1/Map (local)1
         - /Odometry2
       Splitter Ratio: 0.5600000023841858
     Tree Height: 1034
@@ -333,14 +334,14 @@ Visualization Manager:
         - Alpha: 1
           Autocompute Intensity Bounds: true
           Autocompute Value Bounds:
-            Max Value: 36.61034393310547
-            Min Value: -2.3476977348327637
+            Max Value: 18.250141143798828
+            Min Value: -8.91121768951416
             Value: true
           Axis: Z
           Channel Name: intensity
           Class: rviz/PointCloud2
-          Color: 255; 255; 255
-          Color Transformer: AxisColor
+          Color: 0; 255; 0
+          Color Transformer: FlatColor
           Decay Time: 0
           Enabled: false
           Invert Rainbow: false
@@ -524,7 +525,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz/Orbit
-      Distance: 670.4610595703125
+      Distance: 125.10686492919922
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -542,7 +543,7 @@ Visualization Manager:
       Near Clip Distance: 0.009999999776482582
       Pitch: 1.5697963237762451
       Target Frame: base_link
-      Yaw: 5.528637886047363
+      Yaw: 4.8336405754089355
     Saved: ~
 Window Geometry:
   Displays:

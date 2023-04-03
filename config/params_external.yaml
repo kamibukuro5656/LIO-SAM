@@ -12,10 +12,8 @@ lio_sam:
   odometryFrame: "odom"
   mapFrame: "map"
 
-  matchingMethod: "gicp"
+  matchingMethod: "vgicp_cuda"
   #matchingMethod: "feature"
-  useKeyFramesConvexSubMapping: true
-  useScanConvexSubMapping: true
 
   # GPS Settings
   useImuHeadingInitialization: false           # if using GPS data, set to "true"
